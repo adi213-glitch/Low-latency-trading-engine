@@ -3,6 +3,7 @@
 #include <string>
 #include <iostream>
 #include <sstream>
+#include <chrono>
 #include <unordered_map>
 #include <deque>
 #include <vector>
@@ -58,4 +59,27 @@ std::vector<csot::Tick> Engine::load_ticks(std::string_view path){
             storeTicks.push_back(tick);
         }
         return storeTicks;
+}
+
+
+void Engine::run(csot::Strategy* strategy, const std::vector<csot::Tick>& ticks){
+    csot::LatencyHistogram hist;
+    strategy->on_init();
+    
+    uint32_t counter_ticks = 0;
+    for (const auto& tick : ticks) {
+        auto t1 = std::chrono::steady_clock::now();
+
+        std::vector<csot::Order> orders{strategy->on_tick(tick)};
+
+        auto t2 = std::chrono::steady_clock::now();
+        hist.record(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count());
+
+        for(const auto& o : orders){
+            strategy->on_fill(o,o.price,o.qty);
+        }
+        counter_ticks++;
     }
+    std::cout << counter_ticks << " ticks were processed.\n";
+    hist.print(std::cout);
+}
