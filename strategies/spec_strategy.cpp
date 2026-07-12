@@ -4,58 +4,62 @@
 #include <iostream>
 #include <unordered_map>
 constexpr uint32_t WINDOW {64};
+constexpr double WINDOW_D {64.0};
 constexpr float ENTRY_Z{2.0f};
 constexpr float EXIT_Z{0.5f};
 constexpr uint32_t ORDER_QTY{1};
 constexpr uint32_t MAX_ABS_POSITION{1};
 constexpr double EPSILON_STDDEV{1e-9};
+constexpr std::string_view START_SYMBOL{"SYM0"};
+
+
 
 class SpecStrategy : public csot::Strategy{ 
 private : 
     struct SymbolState {
         double mids[WINDOW]{};      // rolling mid-price window
+        double sum{};
+        double sqsum{};
         uint32_t count{};       // number of valid entries seen so far, capped at 64
         uint32_t head{};        // index where the next mid-price will be written
         int32_t position{};     // -1, 0, or +1
     };
     std::array <SymbolState, 64> symbols ;
-    std::unordered_map<std::string_view,int> map_symbols_to_idx;
-    static inline int symbols_found = 0;
 public:
-    
+    int parse_symbol_as_int (std::string_view s){
+        return  (s.size() == 4) ? (s[3] - '0') : (10 * (s[3] - '0') + (s[4] - '0'));
+    }
     void on_init() override {
         
     }
     std::vector<csot::Order> on_tick(const csot::Tick& t) override{
-        if(map_symbols_to_idx.find(t.symbol)==map_symbols_to_idx.end()){
-            //first tick for this symbol 
-            // add to map
-            map_symbols_to_idx[t.symbol]=symbols_found++;
-        }
         // 1.per tick algorithm
-        
-        int symbol_idx = map_symbols_to_idx[t.symbol];
+        int symbol_idx = parse_symbol_as_int(t.symbol);
         SymbolState& s {symbols[symbol_idx]};
         double mid = (t.bid_px + t.ask_px) / 2.0;
+
         //2.add to rolling window
+        
+        //remove the current value at head from sum and sqsum and add new mid to the rolling counters
+        double val {s.mids[s.head]};
+        s.sum+= (mid -val);
+        s.sqsum +=((mid*mid)-(val*val));
+        // now continue with window update
         s.mids[s.head]=mid;
-        s.head = (s.head+1) % WINDOW;
+        // 63 in binary is 00111111. 
+        // This wraps head perfectly back to 0 without division.
+        s.head = (s.head + 1) & 63;
         s.count = std::min(s.count+1, WINDOW);
+
         // 3.warmup period
         if(s.count < WINDOW) return {};
         // The tick that fills the 64th entry is eligible for trading. In other words, append first, then compute.
 
         // 4.Compute mean and standard deviation
-        double mean {0.0};
-        for(uint16_t i {0} ; i < WINDOW ; ++i){
-            mean+=s.mids[i];
-        }
-        mean/=64;
+        double mean { s.sum/WINDOW_D};
 
-        double variance {0.0};
-        for(uint16_t i {0} ; i < WINDOW ; ++i){
-            variance+=((s.mids[i]-mean)*(s.mids[i]-mean));
-        }
+        double variance {(s.sqsum/WINDOW_D) - (mean*mean)};
+        
         double stddev {std::sqrt(variance)};
 
         if(stddev < EPSILON_STDDEV) return {};
@@ -86,7 +90,7 @@ public:
             uint32_t      fill_qty) override  {
 
         (void)fill_price; // Explicitly silence the unused parameter warning
-        SymbolState& s {symbols[map_symbols_to_idx[o.symbol]]};
+        SymbolState& s {symbols[parse_symbol_as_int(o.symbol)]};
         switch(o.side){
             case csot::Order::Side::BUY :
                 s.position+=static_cast<int32_t>(fill_qty);

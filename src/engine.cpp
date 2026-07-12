@@ -3,6 +3,8 @@
 #include <string>
 #include <iostream>
 #include <sstream>
+#include <x86intrin.h>
+#include <thread> // Needed for the calibration sleep
 #include <chrono>
 #include <unordered_map>
 #include <deque>
@@ -61,19 +63,36 @@ std::vector<csot::Tick> Engine::load_ticks(std::string_view path){
         return storeTicks;
 }
 
+// Calibrate rdtsc at startup
+double tsc_per_ns() {
+    auto t0 = std::chrono::steady_clock::now();
+    uint64_t c0 = __rdtsc();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto t1 = std::chrono::steady_clock::now();
+    uint64_t c1 = __rdtsc();
+    double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
+    return (c1 - c0) / ns;
+}
 
 void Engine::run(csot::Strategy* strategy, const std::vector<csot::Tick>& ticks){
     csot::LatencyHistogram hist;
     strategy->on_init();
     
+    double cycles_per_ns = tsc_per_ns();
     uint32_t counter_ticks = 0;
     for (const auto& tick : ticks) {
-        auto t1 = std::chrono::steady_clock::now();
+        // 1. Start hardware timer
+        uint64_t c_start = __rdtsc();
 
         std::vector<csot::Order> orders{strategy->on_tick(tick)};
 
-        auto t2 = std::chrono::steady_clock::now();
-        hist.record(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count());
+        // 2. Stop hardware timer
+        uint64_t c_end = __rdtsc(); 
+        uint64_t cycles_taken = c_end - c_start; 
+        uint64_t ns_taken = static_cast<uint64_t>(cycles_taken / cycles_per_ns);
+
+        hist.record(ns_taken);
+        
 
         for(const auto& o : orders){
             strategy->on_fill(o,o.price,o.qty);

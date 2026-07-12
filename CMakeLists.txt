@@ -84,9 +84,9 @@ add_library(null_strategy SHARED strategies/null_strategy.cpp)
 set_target_properties(null_strategy PROPERTIES PREFIX "")
 # -------- Benchmarks (Google Benchmark) --------
 # Uncomment when you've written bench/bench.cpp.
-# find_package(benchmark REQUIRED)
-# add_executable(quant_bench bench/bench.cpp)
-# target_link_libraries(quant_bench PRIVATE engine benchmark::benchmark)
+find_package(benchmark REQUIRED)
+add_executable(quant_bench bench/bench.cpp)
+target_link_libraries(quant_bench PRIVATE engine benchmark::benchmark)
 
 # ===============================================================
 # Help message after first configure
