@@ -44,16 +44,16 @@ cmake --build build -j
 Measured on the `synthetic_large.csv` dataset, capturing the full pipeline (CSV routing, symbol lookup, algorithmic execution, and order processing) using `__rdtsc`. 
 
 * **Total Processed:** 10,000,000 ticks
-* **Median (p50):** <= 128 ns
-* **90th Percentile (p90):** <= 128 ns
-* **99th Percentile (p99):** <= 128 ns
-* **99.9th Percentile (p999):** <= 256 ns
+* **Median (p50):** <= 32 ns
+* **90th Percentile (p90):** <= 32 ns
+* **99th Percentile (p99):** <= 64 ns
+* **99.9th Percentile (p999):** <= 64 ns
 
 ### Isolated Strategy Microbenchmark (Google Benchmark)
 Measured using Google Benchmark to capture the pure algorithmic execution of `on_tick` without file I/O or engine overhead.
 
-* **Execution Time (Per tick iteration):** 68.3 ns
-* **Throughput:** 14.64 Million items/second
+* **Execution Time (Per tick iteration):** 4.3 ns
+* **Throughput:** 221.567 Million items/second
 
 ---
 
