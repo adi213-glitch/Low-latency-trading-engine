@@ -75,16 +75,30 @@ double tsc_per_ns() {
 }
 
 void Engine::run(csot::Strategy* strategy, const std::vector<csot::Tick>& ticks){
+
+    // 1. Pre-allocate the memory on the stack (e.g., 1024 bytes)
+    // This is enough to hold dozens of Order objects per tick.
+    std::array<std::byte, 1024> buffer;
+
+    // 2. Wrap the buffer in the PMR Arena Allocator
+    std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size(),std::pmr::null_memory_resource());
+
+
     csot::LatencyHistogram hist;
     strategy->on_init();
     
     double cycles_per_ns = tsc_per_ns();
     uint32_t counter_ticks = 0;
     for (const auto& tick : ticks) {
+        // INSTANTLY resets the memory pointer to the start of the buffer.
+        // This is what eliminates the heap churn.
+        arena.release();
+        
         // 1. Start hardware timer
         uint64_t c_start = __rdtsc();
 
-        std::vector<csot::Order> orders{strategy->on_tick(tick)};
+        
+        std::pmr::vector<csot::Order> orders{strategy->on_tick(tick, &arena)};
 
         // 2. Stop hardware timer
         uint64_t c_end = __rdtsc(); 

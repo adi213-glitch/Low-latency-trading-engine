@@ -92,7 +92,8 @@ public:
 
     virtual void on_init() {}
 
-    virtual std::vector<Order> on_tick(const Tick& t) = 0;
+    // Conventional return syntax, but using a PMR vector
+    virtual std::pmr::vector<Order> on_tick(const Tick& t, std::pmr::memory_resource* arena) = 0;
 
     virtual void on_fill(const Order& o,
                          double        fill_price,

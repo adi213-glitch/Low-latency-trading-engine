@@ -3,6 +3,8 @@
 #include <cmath>
 #include <iostream>
 #include <unordered_map>
+#include <memory_resource>
+#include <vector>
 constexpr uint32_t WINDOW {64};
 constexpr double WINDOW_D {64.0};
 constexpr float ENTRY_Z{2.0f};
@@ -12,8 +14,10 @@ constexpr uint32_t MAX_ABS_POSITION{1};
 constexpr double EPSILON_STDDEV{1e-9};
 constexpr std::string_view START_SYMBOL{"SYM0"};
 
-
-
+constexpr double ENTRY_Z_SQ { ENTRY_Z * ENTRY_Z};
+constexpr double EXIT_Z_SQ {EXIT_Z * EXIT_Z};
+constexpr double EPSILON_VAR {EPSILON_STDDEV * EPSILON_STDDEV};
+constexpr double WINDOW_INV {1.0/64.0};
 class SpecStrategy : public csot::Strategy{ 
 private : 
     struct SymbolState {
@@ -32,11 +36,11 @@ public:
     void on_init() override {
         
     }
-    std::vector<csot::Order> on_tick(const csot::Tick& t) override{
+    std::pmr::vector<csot::Order> on_tick(const csot::Tick& t,std::pmr::memory_resource* arena) override{
         // 1.per tick algorithm
         int symbol_idx = parse_symbol_as_int(t.symbol);
         SymbolState& s {symbols[symbol_idx]};
-        double mid = (t.bid_px + t.ask_px) / 2.0;
+        double mid = (t.bid_px + t.ask_px) * 0.5;
 
         //2.add to rolling window
         
@@ -52,36 +56,56 @@ public:
         s.count = std::min(s.count+1, WINDOW);
 
         // 3.warmup period
-        if(s.count < WINDOW) return {};
+        if(s.count < WINDOW) return std::pmr::vector<csot::Order> (arena);;
         // The tick that fills the 64th entry is eligible for trading. In other words, append first, then compute.
 
         // 4.Compute mean and standard deviation
-        double mean { s.sum/WINDOW_D};
+        double mean { s.sum * WINDOW_INV}; // Fast multiplication with WINDOW_INV instead of slow division by 64.0
 
-        double variance {(s.sqsum/WINDOW_D) - (mean*mean)};
+        double variance {(s.sqsum * WINDOW_INV) - (mean*mean)};
         
-        double stddev {std::sqrt(variance)};
+        // double stddev {std::sqrt(variance)}; erase this to optimise math
 
-        if(stddev < EPSILON_STDDEV) return {};
-        //Step 5 — Compute z-score
-        double z { (mid - mean) / stddev};
+        // if(stddev < EPSILON_STDDEV) return orders;
+        // this above line is replaced by below :
+        if(variance < EPSILON_VAR) return std::pmr::vector<csot::Order> (arena);;
+
+        // Step 5
+        // Compute z-score (erased)
+        // double z { (mid - mean) / stddev};
+
+        // instead Compute the raw difference and its square
+        double diff = mid - mean;
+        double diff_sq = diff * diff;
 
         // step 6 : entry logic
-
-        if(s.position==0) {
-            if(z>=+ENTRY_Z) return {csot::Order{csot::Order::Side::SELL,t.symbol,t.bid_px,1}};
-            else if(z<=-ENTRY_Z) return {csot::Order{csot::Order::Side::BUY,t.symbol,t.ask_px,1}};
-            else return {};
-        }
-
-        // step 7 : exit logic 
-        if(s.position > 0 && std::abs(z) <= EXIT_Z) 
-            return {csot::Order{csot::Order::Side::SELL,t.symbol,t.bid_px,static_cast<uint32_t>(s.position)}};
-
-        else if(s.position < 0 && std::abs(z) <= EXIT_Z) 
-            return {csot::Order{csot::Order::Side::BUY,t.symbol,t.ask_px,static_cast<uint32_t>(-s.position)}};
         
-        else return{};
+        if(s.position==0) {
+            if (diff >= 0 && (diff_sq >= ENTRY_Z_SQ * variance)){
+                // construct the vector only when we trade
+                std::pmr::vector<csot::Order> orders(arena);
+                orders.emplace_back(csot::Order::Side::SELL,t.symbol,t.bid_px,1);
+                return orders;
+            }else if (diff < 0 && (diff_sq >= ENTRY_Z_SQ * variance)){
+                std::pmr::vector<csot::Order> orders(arena);
+                orders.emplace_back(csot::Order::Side::BUY,t.symbol,t.ask_px,1); 
+                return orders;
+            }
+        }// step 7 : exit logic 
+        else {
+            if (diff_sq <= EXIT_Z_SQ * variance) {
+                std::pmr::vector<csot::Order> orders(arena);
+                if (s.position > 0) {
+                    orders.emplace_back(csot::Order::Side::SELL, t.symbol, t.bid_px, static_cast<uint32_t>(s.position));
+                } else {
+                    orders.emplace_back(csot::Order::Side::BUY, t.symbol, t.ask_px, static_cast<uint32_t>(-s.position));
+                }
+                return orders;
+            }
+        }
+        // this returns empty vector
+        return std::pmr::vector<csot::Order> (arena);
+        
     }
 
 

@@ -3,7 +3,7 @@
 class NullStrategy : public csot::Strategy{
 public:
     virtual void on_init() {}
-    std::vector<csot::Order> on_tick(const csot::Tick& ) override {return {};}
+    std::pmr::vector<csot::Order> on_tick(const csot::Tick& ,std::pmr::memory_resource *) override {return {};}
     virtual void on_fill(const csot::Order& o,
                          double        fill_price,
                          uint32_t      fill_qty) {
